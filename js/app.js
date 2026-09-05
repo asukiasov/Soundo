@@ -134,21 +134,59 @@
 
   /* ---- diagnostics overlay: open the page with #debug ---------------- */
   if (location.hash.indexOf('debug') >= 0) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText =
+      'position:fixed;left:0;bottom:0;right:0;z-index:9999;background:rgba(0,0,0,.85)';
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;gap:8px;padding:6px';
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy';
+    const shareBtn = document.createElement('button');
+    shareBtn.textContent = 'Share';
+    [copyBtn, shareBtn].forEach(b => {
+      b.style.cssText = 'flex:1;padding:10px;font-size:14px;border:0;border-radius:8px;background:#0f0;color:#000;font-weight:700';
+    });
+    bar.append(copyBtn, shareBtn);
     const box = document.createElement('pre');
     box.style.cssText =
-      'position:fixed;left:0;bottom:0;right:0;margin:0;padding:8px;font-size:11px;' +
-      'background:rgba(0,0,0,.8);color:#0f0;white-space:pre-wrap;z-index:9999;max-height:45vh;overflow:auto';
-    document.body.appendChild(box);
+      'margin:0;padding:8px;font-size:11px;color:#0f0;white-space:pre-wrap;max-height:40vh;overflow:auto;' +
+      'user-select:all;-webkit-user-select:all';
+    wrap.append(bar, box);
+    document.body.appendChild(wrap);
+
     let lastT = performance.now();
     let maxGapMs = 0;
+    let text = '';
     setInterval(() => {
       const now = performance.now();
       const gap = now - lastT - 250; // scheduler jitter ~ main-thread stall
       if (gap > maxGapMs) maxGapMs = gap;
       lastT = now;
       const d = engine.getDiagnostics();
-      box.textContent =
+      text =
+        'SOUNDO DEBUG @ ' + location.hash + '\n' +
         JSON.stringify(d, null, 1) + '\nmainThreadStallMaxMs: ' + Math.round(maxGapMs);
+      box.textContent = text;
     }, 250);
+
+    async function copyOut() {
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = 'Copied ✓';
+      } catch (e) {
+        const r = document.createRange();
+        r.selectNodeContents(box);
+        const sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+        copyBtn.textContent = document.execCommand('copy') ? 'Copied ✓' : 'Select + long-press';
+      }
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+    }
+    copyBtn.addEventListener('click', copyOut);
+    shareBtn.addEventListener('click', () => {
+      if (navigator.share) navigator.share({ text: text }).catch(() => {});
+      else copyOut();
+    });
   }
 })();
