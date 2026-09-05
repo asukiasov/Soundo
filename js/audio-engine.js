@@ -72,6 +72,28 @@
     }
   };
 
+  AudioEngine.prototype.getDiagnostics = function () {
+    if (!this.ctx) return { ready: false };
+    const track = this.micStream && this.micStream.getAudioTracks()[0];
+    const s = (track && track.getSettings && track.getSettings()) || {};
+    return {
+      ready: true,
+      ua: navigator.userAgent,
+      ctxSampleRate: this.ctx.sampleRate,
+      baseLatencyMs: this.ctx.baseLatency != null ? Math.round(this.ctx.baseLatency * 1000) : null,
+      outputLatencyMs: this.ctx.outputLatency != null ? Math.round(this.ctx.outputLatency * 1000) : null,
+      micSampleRate: s.sampleRate || null,
+      micChannelCount: s.channelCount || null,
+      echoCancellation: s.echoCancellation,
+      noiseSuppression: s.noiseSuppression,
+      autoGainControl: s.autoGainControl,
+      latency: s.latency != null ? s.latency : null,
+      effect: this.effectId,
+      recording: this.recorder && this.recorder.state === 'recording',
+      mime: this.mime,
+    };
+  };
+
   AudioEngine.prototype.setEffect = function (id) {
     if (!this.ctx || id === this.effectId) return;
     const def = global.SoundoEffects.get(id);

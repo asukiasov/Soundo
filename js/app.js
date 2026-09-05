@@ -131,4 +131,24 @@
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showError('This browser cannot access the microphone.');
   }
+
+  /* ---- diagnostics overlay: open the page with #debug ---------------- */
+  if (location.hash.indexOf('debug') >= 0) {
+    const box = document.createElement('pre');
+    box.style.cssText =
+      'position:fixed;left:0;bottom:0;right:0;margin:0;padding:8px;font-size:11px;' +
+      'background:rgba(0,0,0,.8);color:#0f0;white-space:pre-wrap;z-index:9999;max-height:45vh;overflow:auto';
+    document.body.appendChild(box);
+    let lastT = performance.now();
+    let maxGapMs = 0;
+    setInterval(() => {
+      const now = performance.now();
+      const gap = now - lastT - 250; // scheduler jitter ~ main-thread stall
+      if (gap > maxGapMs) maxGapMs = gap;
+      lastT = now;
+      const d = engine.getDiagnostics();
+      box.textContent =
+        JSON.stringify(d, null, 1) + '\nmainThreadStallMaxMs: ' + Math.round(maxGapMs);
+    }, 250);
+  }
 })();
