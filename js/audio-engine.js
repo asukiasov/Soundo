@@ -46,7 +46,7 @@
     this.workletLoaded = false;
     try {
       if (this.ctx.audioWorklet) {
-        await this.ctx.audioWorklet.addModule('js/pitch-processor.js');
+        await this.ctx.audioWorklet.addModule('js/pitch-processor.js?v=3');
         this.workletLoaded = true;
       }
     } catch (e) {
