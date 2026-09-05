@@ -1,0 +1,132 @@
+/* Soundo audio engine: mic -> effect chain -> (live monitor + recorder). */
+(function (global) {
+  'use strict';
+
+  function pickMime() {
+    if (typeof MediaRecorder === 'undefined') return null;
+    const types = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg;codecs=opus',
+    ];
+    for (const t of types) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return ''; // let the browser choose
+  }
+
+  function AudioEngine() {
+    this.ctx = null;
+    this.micStream = null;
+    this.micSource = null;
+    this.inputGain = null;
+    this.outGain = null;
+    this.monitorGain = null;
+    this.recDest = null;
+    this.effect = null;
+    this.effectId = null;
+    this.amount = 0.5;
+    this.recorder = null;
+    this.chunks = [];
+    this.lastBlob = null;
+    this.mime = '';
+  }
+
+  AudioEngine.prototype.init = async function () {
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended') await this.ctx.resume();
+      return;
+    }
+    const Ctx = global.AudioContext || global.webkitAudioContext;
+    this.ctx = new Ctx();
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+
+    this.micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      video: false,
+    });
+
+    const ctx = this.ctx;
+    this.micSource = ctx.createMediaStreamSource(this.micStream);
+    this.inputGain = ctx.createGain();
+    this.outGain = ctx.createGain();
+    this.monitorGain = ctx.createGain();
+    this.monitorGain.gain.value = 0;
+    this.recDest = ctx.createMediaStreamDestination();
+
+    this.micSource.connect(this.inputGain);
+    this.outGain.connect(this.monitorGain).connect(ctx.destination);
+    this.outGain.connect(this.recDest);
+
+    this.mime = pickMime();
+    if (this.mime !== null) {
+      const opts = this.mime ? { mimeType: this.mime } : undefined;
+      this.recorder = new MediaRecorder(this.recDest.stream, opts);
+      this.recorder.ondataavailable = (e) => { if (e.data && e.data.size) this.chunks.push(e.data); };
+      this.recorder.onstop = () => {
+        this.lastBlob = new Blob(this.chunks, { type: this.recorder.mimeType || 'audio/webm' });
+        this.chunks = [];
+        if (this._onRecStop) this._onRecStop(this.lastBlob);
+      };
+    }
+  };
+
+  AudioEngine.prototype.setEffect = function (id) {
+    if (!this.ctx || id === this.effectId) return;
+    const def = global.SoundoEffects.get(id);
+    if (!def) return;
+
+    const next = def.factory(this.ctx);
+    this.inputGain.connect(next.input);
+    next.output.connect(this.outGain);
+    next.setAmount(this.amount);
+    next.start();
+
+    const prev = this.effect;
+    if (prev) {
+      try { this.inputGain.disconnect(prev.input); } catch (e) {}
+      // let the tail flush, then tear down
+      setTimeout(() => prev.dispose(), 200);
+    }
+    this.effect = next;
+    this.effectId = id;
+  };
+
+  AudioEngine.prototype.setAmount = function (pct) {
+    this.amount = Math.max(0, Math.min(1, pct / 100));
+    if (this.effect) this.effect.setAmount(this.amount);
+  };
+
+  AudioEngine.prototype.setMonitor = function (on) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.monitorGain.gain.setTargetAtTime(on ? 1 : 0, t, 0.02);
+  };
+
+  AudioEngine.prototype.startRecording = function () {
+    if (!this.recorder || this.recorder.state === 'recording') return false;
+    this.chunks = [];
+    this.lastBlob = null;
+    this.recorder.start();
+    return true;
+  };
+
+  AudioEngine.prototype.stopRecording = function (cb) {
+    this._onRecStop = cb;
+    if (this.recorder && this.recorder.state === 'recording') this.recorder.stop();
+  };
+
+  AudioEngine.prototype.fileExtension = function () {
+    const m = (this.lastBlob && this.lastBlob.type) || this.mime || '';
+    if (m.indexOf('mp4') >= 0) return 'm4a';
+    if (m.indexOf('ogg') >= 0) return 'ogg';
+    return 'webm';
+  };
+
+  AudioEngine.prototype.canRecord = function () {
+    return !!this.recorder;
+  };
+
+  global.AudioEngine = AudioEngine;
+})(window);

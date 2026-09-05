@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#1b1035" />
+  <title>Soundo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main id="app">
+    <header class="topbar">
+      <h1 class="logo">Soundo</h1>
+      <p class="tagline">Your magic microphone</p>
+    </header>
+
+    <!-- HOME -->
+    <section id="home" class="screen is-active">
+      <p class="hint">Pick a voice</p>
+      <div class="effect-grid" id="homeEffects"></div>
+
+      <div class="controls" id="homeControls" hidden>
+        <label class="slider-row">
+          <span>Distortion</span>
+          <input type="range" id="distortion" min="0" max="100" value="50" />
+          <output id="distortionOut">50%</output>
+        </label>
+        <div class="btn-row">
+          <button class="big-btn listen" id="listenBtn">▶ Listen</button>
+          <button class="big-btn record" id="recordBtn">● Record</button>
+        </div>
+        <p class="feedback-hint">Use headphones for Listen mode 🎧</p>
+      </div>
+    </section>
+
+    <!-- RECORDING -->
+    <section id="recording" class="screen">
+      <div class="rec-status">
+        <span class="rec-dot"></span>
+        <span id="timer">0:00</span>
+      </div>
+      <button class="big-btn stop" id="stopBtn">■ Stop</button>
+      <p class="hint">Switch voice while recording</p>
+      <div class="effect-grid small" id="recEffects"></div>
+    </section>
+
+    <!-- PLAYBACK -->
+    <section id="playback" class="screen">
+      <p class="hint">Your recording</p>
+      <audio id="player" controls playsinline></audio>
+      <div class="btn-row">
+        <button class="big-btn" id="saveBtn">⬇ Save</button>
+        <button class="big-btn ghost" id="againBtn">↺ New</button>
+      </div>
+    </section>
+
+    <p id="error" class="error" hidden></p>
+  </main>
+
+  <script src="js/effects.js"></script>
+  <script src="js/audio-engine.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
