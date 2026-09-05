@@ -6,6 +6,10 @@
  *   start()             start internal oscillators (call once, after connect)
  *   dispose()           stop and disconnect everything
  * }
+ *
+ * Monster uses the 'pitch-shifter' AudioWorklet (js/pitch-processor.js). The
+ * engine loads that module during init; if it is unavailable the effect
+ * degrades to lowpass + drive without the pitch drop.
  */
 (function (global) {
   'use strict';
@@ -20,7 +24,7 @@
     return curve;
   }
 
-  /* ---- Robot: ring modulator + crunch ------------------------------------ */
+  /* ---- Robot: ring modulator + gentle crunch --------------------------- */
   function robot(ctx) {
     const input = ctx.createGain();
     const output = ctx.createGain();
@@ -34,7 +38,7 @@
     carrier.frequency.value = 120;
 
     const shaper = ctx.createWaveShaper();
-    shaper.curve = makeDistortionCurve(6);
+    shaper.curve = makeDistortionCurve(2.5);
 
     input.connect(dry).connect(output);
     input.connect(ring);
@@ -42,14 +46,15 @@
     ring.connect(shaper).connect(wet).connect(output);
 
     dry.gain.value = 0.5;
-    wet.gain.value = 0.8;
+    wet.gain.value = 0.7;
 
     return {
       input, output,
       setAmount(a) {
-        carrier.frequency.setTargetAtTime(60 + a * 300, ctx.currentTime, 0.02);
-        dry.gain.setTargetAtTime(0.6 - 0.5 * a, ctx.currentTime, 0.02);
-        wet.gain.setTargetAtTime(0.4 + 0.6 * a, ctx.currentTime, 0.02);
+        const t = ctx.currentTime;
+        carrier.frequency.setTargetAtTime(60 + a * 260, t, 0.02);
+        dry.gain.setTargetAtTime(0.6 - 0.45 * a, t, 0.02);
+        wet.gain.setTargetAtTime(0.35 + 0.5 * a, t, 0.02);
       },
       start() { carrier.start(); },
       dispose() {
@@ -61,109 +66,52 @@
     };
   }
 
-  /* ---- Monster: pitch down + lowpass + drive ---------------------------- */
+  /* ---- Monster: pitch down (worklet) + lowpass + drive ---------------- */
   function monster(ctx) {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    const windowSize = 0.08;
 
-    const shifter = createPitchShifter(ctx, windowSize);
+    let shifter = null;
+    try {
+      shifter = new AudioWorkletNode(ctx, 'pitch-shifter', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        channelCount: 1,
+        channelCountMode: 'explicit',
+        outputChannelCount: [1],
+      });
+    } catch (e) {
+      shifter = null; // module not loaded / unsupported
+    }
+
     const lowpass = ctx.createBiquadFilter();
     lowpass.type = 'lowpass';
-    lowpass.frequency.value = 1400;
+    lowpass.frequency.value = 1700;
     const drive = ctx.createWaveShaper();
-    drive.curve = makeDistortionCurve(4);
+    drive.curve = makeDistortionCurve(2.5);
 
-    input.connect(shifter.input);
-    shifter.output.connect(lowpass).connect(drive).connect(output);
+    if (shifter) input.connect(shifter).connect(lowpass);
+    else input.connect(lowpass);
+    lowpass.connect(drive).connect(output);
 
     return {
       input, output,
       setAmount(a) {
-        // -4 to -13 semitones
-        const semis = -(4 + a * 9);
-        shifter.setRatio(Math.pow(2, semis / 12));
-        lowpass.frequency.setTargetAtTime(1800 - a * 900, ctx.currentTime, 0.03);
+        const t = ctx.currentTime;
+        const semis = -(3 + a * 8); // -3 .. -11
+        if (shifter) {
+          shifter.parameters.get('ratio').setTargetAtTime(Math.pow(2, semis / 12), t, 0.05);
+        }
+        lowpass.frequency.setTargetAtTime(1900 - a * 1000, t, 0.03);
       },
-      start() { shifter.start(); },
+      start() {},
       dispose() {
-        shifter.dispose();
         [input, output, lowpass, drive].forEach(n => {
           try { n.disconnect(); } catch (e) {}
         });
+        if (shifter) { try { shifter.disconnect(); } catch (e) {} }
       },
     };
-  }
-
-  /* ---- delay-line pitch shifter (two crossfading taps) ----------------- */
-  function createPitchShifter(ctx, windowSize) {
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-
-    const taps = [0, 1].map(() => {
-      const delay = ctx.createDelay(1);
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      input.connect(delay).connect(gain).connect(output);
-
-      const ramp = ctx.createOscillator();
-      ramp.type = 'sawtooth';
-      const rampDepth = ctx.createGain();
-      rampDepth.gain.value = windowSize / 2;
-      const rampOffset = ctx.createConstantSource();
-      rampOffset.offset.value = windowSize / 2;
-      ramp.connect(rampDepth).connect(delay.delayTime);
-      rampOffset.connect(delay.delayTime);
-
-      const fade = ctx.createOscillator();
-      fade.type = 'triangle';
-      const fadeDepth = ctx.createGain();
-      fadeDepth.gain.value = 0.5;
-      const fadeOffset = ctx.createConstantSource();
-      fadeOffset.offset.value = 0.5;
-      fade.connect(fadeDepth).connect(gain.gain);
-      fadeOffset.connect(gain.gain);
-
-      return { delay, gain, ramp, rampDepth, rampOffset, fade, fadeDepth, fadeOffset };
-    });
-
-    function setRatio(r) {
-      // freq of the delay ramp that produces pitch ratio r
-      let freq = (1 - r) / windowSize;
-      if (!isFinite(freq)) freq = 0;
-      const f = Math.abs(freq);
-      taps.forEach(t => {
-        t.ramp.frequency.setTargetAtTime(freq, ctx.currentTime, 0.03);
-        t.fade.frequency.setTargetAtTime(f, ctx.currentTime, 0.03);
-      });
-    }
-
-    function start() {
-      const now = ctx.currentTime;
-      const half = 0; // taps started together; triangle offset handled below
-      taps.forEach((t, i) => {
-        // stagger tap 1 by half a nominal window for crossfade coverage
-        const t0 = now + (i === 1 ? windowSize / 2 : 0);
-        t.ramp.start(t0);
-        t.rampOffset.start(t0);
-        t.fade.start(t0);
-        t.fadeOffset.start(t0);
-      });
-    }
-
-    function dispose() {
-      taps.forEach(t => {
-        ['ramp', 'rampOffset', 'fade', 'fadeOffset'].forEach(k => {
-          try { t[k].stop(); } catch (e) {}
-        });
-        Object.values(t).forEach(n => { try { n.disconnect(); } catch (e) {} });
-      });
-      try { input.disconnect(); } catch (e) {}
-      try { output.disconnect(); } catch (e) {}
-    }
-
-    setRatio(0.6);
-    return { input, output, setRatio, start, dispose };
   }
 
   global.SoundoEffects = {

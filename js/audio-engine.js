@@ -39,11 +39,31 @@
       return;
     }
     const Ctx = global.AudioContext || global.webkitAudioContext;
-    this.ctx = new Ctx();
+    this.ctx = new Ctx({ latencyHint: 'interactive' });
     if (this.ctx.state === 'suspended') await this.ctx.resume();
 
+    // Load the pitch-shifter worklet (used by Monster). Non-fatal on failure.
+    this.workletLoaded = false;
+    try {
+      if (this.ctx.audioWorklet) {
+        await this.ctx.audioWorklet.addModule('js/pitch-processor.js');
+        this.workletLoaded = true;
+      }
+    } catch (e) {
+      console.warn('pitch-shifter worklet failed to load:', e);
+    }
+
+    // On phones the "clean voice" capture path (EC/NS/AGC on) is lower latency,
+    // DSP-tuned, and keeps mic hiss out of the distortion stages. Desktop keeps
+    // the raw signal for fidelity.
+    this.isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    const proc = this.isMobile;
     this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      audio: {
+        echoCancellation: proc,
+        noiseSuppression: proc,
+        autoGainControl: proc,
+      },
       video: false,
     });
 
@@ -79,6 +99,7 @@
     return {
       ready: true,
       ua: navigator.userAgent,
+      workletLoaded: !!this.workletLoaded,
       ctxSampleRate: this.ctx.sampleRate,
       baseLatencyMs: this.ctx.baseLatency != null ? Math.round(this.ctx.baseLatency * 1000) : null,
       outputLatencyMs: this.ctx.outputLatency != null ? Math.round(this.ctx.outputLatency * 1000) : null,

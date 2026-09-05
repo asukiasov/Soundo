@@ -14,7 +14,11 @@ Plain HTML/CSS/JS, no framework, no bundler. Load order in `index.html`:
 
 - **`js/effects.js`** — `window.SoundoEffects`. Each effect is a factory `(ctx) => { input,
   output, setAmount(0..1), start(), dispose() }`. Current effects: `robot` (ring modulator +
-  waveshaper), `monster` (two-tap crossfading delay-line pitch shifter + lowpass + drive).
+  waveshaper), `monster` (`pitch-shifter` AudioWorklet + lowpass + drive; degrades to
+  lowpass + drive if the worklet did not load).
+- **`js/pitch-processor.js`** — AudioWorklet `pitch-shifter`: constant-power two-grain
+  delay-line pitch shift, `ratio` k-rate param. Loaded by `engine.init()` via
+  `audioWorklet.addModule('js/pitch-processor.js')` (path is document-relative).
 - **`js/audio-engine.js`** — `window.AudioEngine`. Owns the `AudioContext`, mic
   `getUserMedia`, the fixed graph `micSource → inputGain → [effect] → outGain →
   {monitorGain → destination, recDest → MediaRecorder}`. `setEffect` hot-swaps the effect
@@ -24,8 +28,10 @@ Plain HTML/CSS/JS, no framework, no bundler. Load order in `index.html`:
 ## Conventions
 
 - No dependencies. Keep it that way — everything is Web Audio / DOM built-ins.
-- `AudioContext` is created and resumed only inside a user-gesture handler (mobile autoplay
-  policy). `engine.init()` is idempotent.
+- `AudioContext` is created (`latencyHint: 'interactive'`) and resumed only inside a
+  user-gesture handler (mobile autoplay policy). `engine.init()` is idempotent.
+- Mic constraints are platform-split: mobile requests EC/NS/AGC **on** (lower-latency tuned
+  voice path, keeps hiss out of the distortion); desktop requests them **off** (raw fidelity).
 - Effects must ramp parameters (`setTargetAtTime`) — no zipper noise.
 - Touch-first CSS: large targets, no hover-only UI, respect `env(safe-area-inset-*)`.
 - `MediaRecorder` mime type is feature-detected (`webm/opus` → `webm` → `mp4` → `ogg`);
