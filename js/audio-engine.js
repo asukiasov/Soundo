@@ -46,21 +46,23 @@
     this.workletLoaded = false;
     try {
       if (this.ctx.audioWorklet) {
-        await this.ctx.audioWorklet.addModule('js/pitch-processor.js?v=3');
+        await this.ctx.audioWorklet.addModule('js/pitch-processor.js?v=4');
         this.workletLoaded = true;
       }
     } catch (e) {
       console.warn('pitch-shifter worklet failed to load:', e);
     }
 
-    // On phones the "clean voice" capture path (EC/NS/AGC on) is lower latency,
-    // DSP-tuned, and keeps mic hiss out of the distortion stages. Desktop keeps
-    // the raw signal for fidelity.
+    // On phones, noiseSuppression + autoGainControl select a lower-latency,
+    // DSP-tuned capture path and keep levels up / hiss out of the distortion.
+    // echoCancellation stays OFF everywhere: in Listen mode the processed voice
+    // is played to the speaker, and AEC would duck the mic signal as "echo".
+    // Desktop keeps the fully raw signal for fidelity.
     this.isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     const proc = this.isMobile;
     this.micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: proc,
+        echoCancellation: false,
         noiseSuppression: proc,
         autoGainControl: proc,
       },
