@@ -46,7 +46,7 @@
     this.workletLoaded = false;
     try {
       if (this.ctx.audioWorklet) {
-        await this.ctx.audioWorklet.addModule('js/pitch-processor.js?v=4');
+        await this.ctx.audioWorklet.addModule('js/pitch-processor.js?v=5');
         this.workletLoaded = true;
       }
     } catch (e) {
@@ -73,12 +73,22 @@
     this.micSource = ctx.createMediaStreamSource(this.micStream);
     this.inputGain = ctx.createGain();
     this.outGain = ctx.createGain();
-    this.monitorGain = ctx.createGain();
+    this.monitorGain = ctx.createGain();   // on/off switch for Listen
     this.monitorGain.gain.value = 0;
+    this.boostGain = ctx.createGain();     // user Volume control (Listen only)
+    this.boostGain.gain.value = 1.5;
+    this.limiter = ctx.createDynamicsCompressor(); // guard against clipping/feedback
+    this.limiter.threshold.value = -6;
+    this.limiter.knee.value = 6;
+    this.limiter.ratio.value = 12;
+    this.limiter.attack.value = 0.003;
+    this.limiter.release.value = 0.15;
     this.recDest = ctx.createMediaStreamDestination();
 
     this.micSource.connect(this.inputGain);
-    this.outGain.connect(this.monitorGain).connect(ctx.destination);
+    // Listen path gets the user Volume boost + limiter; recording stays flat.
+    this.outGain.connect(this.monitorGain);
+    this.monitorGain.connect(this.boostGain).connect(this.limiter).connect(ctx.destination);
     this.outGain.connect(this.recDest);
 
     this.mime = pickMime();
@@ -92,6 +102,8 @@
         if (this._onRecStop) this._onRecStop(this.lastBlob);
       };
     }
+
+    if (this.boostPct) this.setMonitorVolume(this.boostPct);
   };
 
   AudioEngine.prototype.getDiagnostics = function () {
@@ -147,6 +159,14 @@
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     this.monitorGain.gain.setTargetAtTime(on ? 1 : 0, t, 0.02);
+  };
+
+  // pct 50..400 -> gain 0.5..4.0
+  AudioEngine.prototype.setMonitorVolume = function (pct) {
+    this.boostPct = pct;
+    if (!this.ctx) return;
+    const g = Math.max(0.1, Math.min(4, pct / 100));
+    this.boostGain.gain.setTargetAtTime(g, this.ctx.currentTime, 0.03);
   };
 
   AudioEngine.prototype.startRecording = function () {

@@ -71,6 +71,19 @@
     engine.setAmount(Number(e.target.value));
   });
 
+  const volEl = $('volume');
+  try {
+    const saved = localStorage.getItem('soundo.volume');
+    if (saved) volEl.value = saved;
+  } catch (e) {}
+  function applyVolume() {
+    $('volumeOut').textContent = volEl.value + '%';
+    engine.setMonitorVolume(Number(volEl.value));
+    try { localStorage.setItem('soundo.volume', volEl.value); } catch (e) {}
+  }
+  volEl.addEventListener('input', applyVolume);
+  applyVolume();
+
   let listening = false;
   $('listenBtn').addEventListener('click', async () => {
     await engine.init();
