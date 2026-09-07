@@ -21,8 +21,12 @@ Plain HTML/CSS/JS, no framework, no bundler. Load order in `index.html`:
   `audioWorklet.addModule('js/pitch-processor.js')` (path is document-relative).
 - **`js/audio-engine.js`** — `window.AudioEngine`. Owns the `AudioContext`, mic
   `getUserMedia`, the fixed graph `micSource → inputGain → [effect] → outGain →
-  {monitorGain → destination, recDest → MediaRecorder}`. `setEffect` hot-swaps the effect
-  node with a short teardown delay.
+  { monitorGain → boostGain → limiter → destination,  recDest → MediaRecorder }`.
+  `monitorGain` is the Listen on/off switch; `boostGain` is the user Volume slider
+  (0.5–4×, persisted in `localStorage['soundo.volume']`, `setMonitorVolume(pct)`);
+  `limiter` is a `DynamicsCompressor` guarding against clipping/feedback. The recording
+  path taps `outGain` directly and is unaffected by Volume. `setEffect` hot-swaps the
+  effect node with a short teardown delay.
 - **`js/app.js`** — screen flow (home / recording / playback), button rows, timer, save.
 
 ## Conventions
